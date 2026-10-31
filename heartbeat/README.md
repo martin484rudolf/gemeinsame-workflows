@@ -1,13 +1,13 @@
 # Herzschlag (Heartbeat)
 
-Ein PowerShell-Skript für Windows, das regelmäßig prüft, ob in den GitHub-Repos etwas offen und liegen geblieben ist — wie ein Herzschlag im Kreis, damit nichts vergessen wird. Es läuft auf einem eigenen PC (z. B. Keller-PC) per Task Scheduler im Takt von 1 Stunde (oder kürzer), unabhängig von GitHub-Actions-Kontingenten und ohne Cron-Drift.
+Ein PowerShell-Skript für Windows, das regelmäßig prüft, ob in den GitHub-Repos etwas offen und liegen geblieben ist — wie ein Herzschlag im Kreis, damit nichts vergessen wird. Es läuft auf einem eigenen PC (z. B. Keller-PC) per Task Scheduler im Takt von 2 Stunden (oder kürzer), unabhängig von GitHub-Actions-Kontingenten und ohne Cron-Drift.
 
 Der Herzschlag schlägt im Takt, aber er **pingt nur bei Bedarf**: Still = alles gut. Jeder Ping nennt genau eine konkrete nächste Handlung.
 
 ## Funktionsweise
 
 ```
-Task Scheduler (Standard: alle 60 Minuten)
+Task Scheduler (Standard: alle 2 Stunden)
   └─ heartbeat.ps1
        ├─ gh pr list   (alle Repos, Zustand: offen)
        ├─ gh issue list (alle Repos, Zustand: offen)
@@ -21,6 +21,8 @@ Task Scheduler (Standard: alle 60 Minuten)
 
 | Situation | Ping nach | Kommentar-Text (Platzhalter) |
 |---|---|---|
+| **Merge-Stau:** PR freigegeben (Approve-Review), aber unmerged | `mergeStaleHours` (Standard 2 h) | `Herzschlag: PR #<nr> ist freigegeben und wartet seit <x> h auf Merge (Web-UI).` |
+| PR freigegeben (approved), unmerged, älter als Fallback-Schwelle | `prApprovedHours` (Standard 24 h) | `Herzschlag: PR #<nr> ist seit <x> h freigegeben (approved) und wartet auf Merge (Web-UI).` |
 | Offener PR, wartet auf Review, kein Feedback | `prReviewHours` (Standard 24 h) | `Herzschlag: PR #<nr> wartet seit <x> h auf Review.` |
 | Offener PR mit unbeantwortetem Review-Kommentar | `prFeedbackHours` (Standard 12 h) | `Herzschlag: Review-Feedback an PR #<nr> ist seit <x> h unbeantwortet.` |
 | Offene Issue ohne Assignee/Label | `issueTriagerHours` (Standard 12 h) | `Herzschlag: Issue #<nr> ist seit <x> h untriaged (kein Assignee).` |
@@ -51,11 +53,11 @@ PowerShell als Administrator:
 
 ```powershell
 $action  = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -File $env:USERPROFILE\.vibe\heartbeat.ps1"
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 1)
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 2)
 Register-ScheduledTask -TaskName "Herzschlag" -Action $action -Trigger $trigger -Description "Praeft offene PRs/Issues in allen GitHub-Repos und pingt bei Bedarf"
 ```
 
-Für einen 30-Minuten-Takt: `-RepetitionInterval (New-TimeSpan -Minutes 30)`.
+Für einen engeren Takt: `-RepetitionInterval (New-TimeSpan -Minutes 30)` bzw. `-Hours 1`. Für nächtliche Ruhe kann eine zweite Trigger-Zeit den Takt außerhalb der Arbeitszeiten auf 4 h drosseln.
 
 ### 4. Testbetrieb (empfohlen)
 
@@ -69,7 +71,8 @@ pwsh -NoProfile -File $HOME\.vibe\heartbeat.ps1 -now
 
 ## Sicherheit & Rahmen
 
-- Das Skript liest GitHub-Zustände und schreibt ausschließlich Kommentare auf Issues/PRs im eigenen Konto. Es ändert keinen Code.
+- Das Skript liest GitHub-Zustände und schreibt ausschließlich Kommentare auf Issues/PRs im eigenen Konto. Es ändert keinen Code und **merged niemals selbst** — Merge bleibt Martin vorbehalten (Web-UI), der Herzschlag macht Stau nur sichtbar.
+- Freigabe-Erkennung: maschinenlesbar über Approve-Reviews (`reviewDecision: APPROVED`). Text-Freigaben in SYNC.md sind menschlicher Zusatz, aber kein Trigger.
 - Es speichert keine Token (nutzt die bestehende `gh`-Authentifizierung).
 - Keine personenbezogenen Daten: Es verarbeitet nur Repo-Namen, PR-/Issue-Nummern und Zeitstempel.
 - Pings sind öffentlich sichtbare Kommentare (bei privaten Repos nur für Repo-Mitglieder).

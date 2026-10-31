@@ -16,6 +16,8 @@ $defaults = @{
     repos              = @()                # leer = alle Repos des Kontos
     prReviewHours      = 24                # PR wartet auf Review
     prFeedbackHours    = 12                # Review-Feedback unbeantwortet
+    mergeStaleHours    = 2                 # PR approved aber unmerged (Merge-Stau)
+    prApprovedHours    = 24                # Fallback: approved, kein Merge, sanfterer Ping
     issueTriagerHours  = 12                # Issue ohne Assignee
     blockedHours       = 48                # Issue mit Label 'blocked' ohne Update
     staleDays          = 7                 # ab hier nur noch weekly + stale-Label
@@ -94,6 +96,19 @@ foreach ($repo in $repos) {
         $checked++
         $ageH = ($nowUtc - [DateTime]::Parse($pr.updatedAt).ToUniversalTime()).TotalHours
 
+        if ($pr.reviewDecision -eq 'APPROVED') {
+            # Merge-Stau: freigegeben (Approve) aber unmerged — beim naechsten Schlag melden
+            if ($ageH -ge $config.prApprovedHours) {
+                Send-Ping $repo $pr.number 'pr' ("Herzschlag: PR #$($pr.number) ist seit $([math]::Round($ageH,1)) h freigegeben (approved) und wartet auf Merge (Web-UI).")
+                $pings++
+                continue
+            }
+            if ($ageH -ge $config.mergeStaleHours) {
+                Send-Ping $repo $pr.number 'pr' ("Herzschlag: PR #$($pr.number) ist freigegeben und wartet seit $([math]::Round($ageH,1)) h auf Merge (Web-UI).")
+                $pings++
+                continue
+            }
+        }
         if ($pr.reviewDecision -eq 'REVIEW_REQUIRED' -and $ageH -ge $config.prReviewHours) {
             Send-Ping $repo $pr.number 'pr' ("Herzschlag: PR #$($pr.number) ($($pr.title)) wartet seit $([math]::Round($ageH,1)) h auf Review.")
             $pings++
