@@ -1,0 +1,29 @@
+# Vorlage: in das jeweilige Repo als .github/workflows/regeln.yml kopieren.
+# Vorher dort die Repo-Variable ERLAUBTER_AUTOR anlegen
+# (Settings → Secrets and variables → Actions → Variables).
+# Fehlt sie, wird der Commit-Autor nicht geprüft.
+
+name: Regeln
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+concurrency:
+  group: regeln-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  regeln:
+    uses: martin484rudolf/gemeinsame-workflows/.github/workflows/regeln.yml@main
+    with:
+      erlaubter_autor: ${{ vars.ERLAUBTER_AUTOR }}
+      # Abweichungen vom Standard nur bei Bedarf:
+      # pflicht_label_praefixe: "agent:,mode:"
+      # branch_muster: "^(claude|vibe|feat)/"
+      # closes_pflicht: true
+      # co_author_verboten: true

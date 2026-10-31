@@ -1,0 +1,142 @@
+name: Regeln
+
+# Wiederverwendbarer Workflow: prüft die Repo-Regeln eines Pull Requests und sucht nach Secrets.
+# Aufruf aus einem anderen Repo: siehe vorlagen/regeln-aufruf.yml
+# Herleitung: https://github.com/martin484rudolf/Mistral-1/issues/3
+
+on:
+  workflow_call:
+    inputs:
+      pflicht_label_praefixe:
+        description: "Kommagetrennte Label-Präfixe; zu jedem muss mindestens ein Label am PR hängen. Leer = keine Prüfung."
+        type: string
+        default: "agent:,mode:"
+      branch_muster:
+        description: "Erlaubte Branch-Namen als regulärer Ausdruck (grep -E). Leer = keine Prüfung."
+        type: string
+        default: "^(claude|vibe|feat)/"
+      closes_pflicht:
+        description: "Die PR-Beschreibung muss ein Issue schließen (Closes/Fixes/Resolves #N)."
+        type: boolean
+        default: true
+      erlaubter_autor:
+        description: "Einzige erlaubte Commit-Autor-Adresse. Leer = keine Prüfung."
+        type: string
+        default: ""
+      co_author_verboten:
+        description: "Commits dürfen keine Co-Authored-By-Zeile enthalten."
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  regeln:
+    name: Repo-Regeln
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Regeln prüfen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          BODY: ${{ github.event.pull_request.body }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PRAEFIXE: ${{ inputs.pflicht_label_praefixe }}
+          MUSTER: ${{ inputs.branch_muster }}
+          CLOSES: ${{ inputs.closes_pflicht }}
+          AUTOR: ${{ inputs.erlaubter_autor }}
+          CO_AUTHOR_VERBOTEN: ${{ inputs.co_author_verboten }}
+        run: |
+          set -euo pipefail
+          fehler=0
+          melde() {
+            echo "::error title=$1::$2"
+            printf -- '- ❌ **%s:** %s\n' "$1" "$2" >> "$GITHUB_STEP_SUMMARY"
+            fehler=$((fehler + 1))
+          }
+          ok() { printf -- '- ✅ %s\n' "$1" >> "$GITHUB_STEP_SUMMARY"; }
+          aus() { printf -- '- ⏭️ %s: nicht geprüft\n' "$1" >> "$GITHUB_STEP_SUMMARY"; }
+
+          echo "## Repo-Regeln" >> "$GITHUB_STEP_SUMMARY"
+
+          # Branch-Name
+          if [ -z "$MUSTER" ]; then
+            aus "Branch-Name"
+          elif printf '%s' "$BRANCH" | grep -Eq -- "$MUSTER"; then
+            ok "Branch '$BRANCH' passt zum Muster"
+          else
+            melde "Branch" "'$BRANCH' passt nicht zum Muster '$MUSTER'"
+          fi
+
+          # Pflicht-Labels
+          if [ -z "${PRAEFIXE//[[:space:],]/}" ]; then
+            aus "Labels"
+          else
+            IFS=',' read -r -a praefixe <<< "$PRAEFIXE"
+            for p in "${praefixe[@]}"; do
+              p="$(printf '%s' "$p" | xargs)"
+              [ -z "$p" ] && continue
+              if tr ',' '\n' <<< "$LABELS" | awk -v p="$p" 'index($0, p) == 1 { f = 1 } END { exit !f }'; then
+                ok "Label mit Präfix '$p' vorhanden"
+              else
+                melde "Label" "Kein Label mit Präfix '$p'"
+              fi
+            done
+          fi
+
+          # Closes #N
+          if [ "$CLOSES" != "true" ]; then
+            aus "Closes #"
+          elif printf '%s' "$BODY" | grep -Eiq '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+'; then
+            ok "Beschreibung schließt ein Issue"
+          else
+            melde "Closes" "Die Beschreibung enthält kein 'Closes #N'"
+          fi
+
+          # Commits: Autor und Co-Authored-By (Merge-Commits ausgenommen)
+          gh api --paginate "repos/$REPO/pulls/$PR/commits" \
+            --jq '.[] | [.sha, (.parents | length), .commit.author.email, (.commit.message | @base64)] | @tsv' > commits.tsv
+          autor_fehler=0
+          co_fehler=0
+          while IFS=$'\t' read -r sha eltern email msg64; do
+            [ "$eltern" -gt 1 ] && continue
+            kurz="${sha:0:7}"
+            if [ -n "$AUTOR" ] && [ "${email,,}" != "${AUTOR,,}" ]; then
+              melde "Commit-Autor" "$kurz: Autor-Adresse ist nicht die erlaubte"
+              autor_fehler=$((autor_fehler + 1))
+            fi
+            if [ "$CO_AUTHOR_VERBOTEN" = "true" ] && printf '%s' "$msg64" | base64 -d | grep -Eiq '^co-authored-by:'; then
+              melde "Co-Authored-By" "$kurz enthält eine Co-Authored-By-Zeile"
+              co_fehler=$((co_fehler + 1))
+            fi
+          done < commits.tsv
+          if [ -z "$AUTOR" ]; then aus "Commit-Autor"; elif [ "$autor_fehler" -eq 0 ]; then ok "Commit-Autor stimmt"; fi
+          if [ "$CO_AUTHOR_VERBOTEN" != "true" ]; then aus "Co-Authored-By"; elif [ "$co_fehler" -eq 0 ]; then ok "Keine Co-Authored-By-Zeile"; fi
+
+          if [ "$fehler" -gt 0 ]; then
+            echo "$fehler Regelverstoß/-verstöße, Details in der Zusammenfassung."
+            exit 1
+          fi
+
+  secrets:
+    name: Secrets (gitleaks)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
