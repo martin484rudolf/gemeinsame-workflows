@@ -1,0 +1,12 @@
+{
+    "repos": [],
+    "prReviewHours": 24,
+    "prFeedbackHours": 12,
+    "issueTriagerHours": 12,
+    "blockedHours": 48,
+    "staleDays": 7,
+    "maxPings": 3,
+    "dryRun": true,
+    "logPath": "",
+    "staleLabel": "stale"
+}
