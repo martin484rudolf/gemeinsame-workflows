@@ -1,0 +1,34 @@
+name: Selbsttest
+
+# Prüft Pull Requests in diesem Repo mit dem eigenen Regeln-Workflow und die Workflows selbst mit actionlint.
+# Hier gibt es keine agent:/mode:-Labels und keine eigenen Issues, darum sind diese beiden Prüfungen aus.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+concurrency:
+  group: selbsttest-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  regeln:
+    uses: ./.github/workflows/regeln.yml
+    with:
+      pflicht_label_praefixe: ""
+      closes_pflicht: false
+      erlaubter_autor: ${{ vars.ERLAUBTER_AUTOR }}
+
+  actionlint:
+    name: Workflows prüfen (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
