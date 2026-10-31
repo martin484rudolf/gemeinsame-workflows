@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Herzschlag-Tafel</title>
+<style>
+  :root {
+    --bg: #12131a; --panel: #1c1e28; --line: #2a2d3a;
+    --text: #e8e8ee; --dim: #9aa0b4;
+    --rot: #e05252; --gelb: #d9a53c; --gruen: #3fbf7f; --blau: #4f8fd9;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; padding: 24px; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .unterzeile { color: var(--dim); font-size: 0.85rem; margin-bottom: 20px; }
+  .herz { display: inline-block; margin-right: 6px; }
+  .puls.puls-an { color: var(--gruen); }
+  .puls.puls-aus { color: var(--dim); }
+
+  /* Zaehler oben */
+  .zaehler { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; }
+  .z-karte { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 20px; min-width: 150px; }
+  .z-karte .zahl { font-size: 2rem; font-weight: 700; }
+  .z-karte .label { color: var(--dim); font-size: 0.8rem; }
+  .z-rot .zahl { color: var(--rot); }
+  .z-gelb .zahl { color: var(--gelb); }
+  .z-gruen .zahl { color: var(--gruen); }
+  .z-blau .zahl { color: var(--blau); }
+
+  /* Spalten je Kategorie */
+  .spalten { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+  .spalte h2 { font-size: 0.95rem; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+  .spalte.rot h2 { border-color: var(--rot); }
+  .spalte.gelb h2 { border-color: var(--gelb); }
+  .spalte.blau h2 { border-color: var(--blau); }
+
+  .karte { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--dim); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+  .karte.wartet-auf-merge { border-left-color: var(--rot); }
+  .karte.feedback-unbeantwortet { border-left-color: var(--rot); }
+  .karte.blockiert { border-left-color: var(--rot); }
+  .karte.wartet-auf-review { border-left-color: var(--gelb); }
+  .karte.untriaged { border-left-color: var(--gelb); }
+  .karte.stale { border-left-color: var(--blau); }
+  .karte .kopf { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .karte .titel { font-weight: 600; font-size: 0.92rem; }
+  .karte .alter { font-size: 0.8rem; color: var(--dim); white-space: nowrap; }
+  .karte .meta { color: var(--dim); font-size: 0.78rem; margin-top: 4px; }
+  .karte .meta a { color: var(--blau); text-decoration: none; }
+  .leer { color: var(--dim); font-size: 0.85rem; font-style: italic; padding: 8px 2px; }
+
+  .fuss { margin-top: 26px; color: var(--dim); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 12px; }
+  .demo-hinweis { background: #3a2d14; color: var(--gelb); border: 1px solid var(--gelb); border-radius: 6px; padding: 8px 12px; font-size: 0.8rem; margin-bottom: 16px; display: none; }
+</style>
+</head>
+<body>
+<h1><span class="herz">&#10084;</span> Herzschlag-Tafel</h1>
+<div class="unterzeile">Letzter Schlag: <span id="schlag">&mdash;</span> &middot; <span id="pruefung"></span></div>
+<div class="demo-hinweis" id="demo">Demo-Daten &mdash; die Tafel zeigt Beispieleintraege. Leg <code>heartbeat-status.json</code> neben diese Datei (oder setze den Pfad unten), damit echte Daten erscheinen.</div>
+
+<div class="zaehler">
+  <div class="z-karte z-rot"><div class="zahl" id="z-rot">0</div><div class="label">liegen geblieben (rot)</div></div>
+  <div class="z-karte z-gelb"><div class="zahl" id="z-gelb">0</div><div class="label">warten (gelb)</div></div>
+  <div class="z-karte z-blau"><div class="zahl" id="z-blau">0</div><div class="label">stale (blau)</div></div>
+  <div class="z-karte z-gruen"><div class="zahl" id="z-gruen">&#10003;</div><div class="label">Herz schlaegt</div></div>
+</div>
+
+<div class="spalten">
+  <div class="spalte rot"><h2>Rot &mdash; jemand wartet</h2><div id="liste-rot"></div></div>
+  <div class="spalte gelb"><h2>Gelb &mdash; zum Bearbeiten</h2><div id="liste-gelb"></div></div>
+  <div class="spalte blau"><h2>Blau &mdash; angelaufen (stale)</h2><div id="liste-blau"></div></div>
+</div>
+
+<div class="fuss">Tafel liest <code>heartbeat-status.json</code> (wird von heartbeat.ps1 bei jedem Schlag aktualisiert). Neu laden mit F5.</div>
+
+<script>
+const DEMO = {
+  generatedAt: new Date().toISOString(),
+  checked: 23, pings: 5,
+  items: [
+    { type: 'pr', kind: 'wartet-auf-merge', repo: 'Handshake', number: 9, title: 'Aufgaben-Regeln', ageHours: 190.2 },
+    { type: 'pr', kind: 'wartet-auf-merge', repo: 'Handshake', number: 10, title: 'Modus-Pult', ageHours: 186.5 },
+    { type: 'pr', kind: 'feedback-unbeantwortet', repo: 'Handshake', number: 14, title: 'Mehrsprachigkeit v0.1', ageHours: 62.1 },
+    { type: 'issue', kind: 'blockiert', repo: 'Handshake', number: 6, title: 'Oberflaechen-Konventionen', ageHours: 120.0 },
+    { type: 'pr', kind: 'wartet-auf-review', repo: 'gemeinsame-workflows', number: 3, title: 'Herzschlag-Skript', ageHours: 5.4 },
+    { type: 'issue', kind: 'untriaged', repo: 'Handshake', number: 38, title: 'Vibe CLI auf Kellerrechner', ageHours: 30.3 },
+    { type: 'issue', kind: 'stale', repo: '800volt', number: 12, title: 'PV-Anlage Zeitreihen', ageHours: 210.7 }
+  ]
+};
+
+const ROT = ['wartet-auf-merge', 'feedback-unbeantwortet', 'blockiert'];
+const GELB = ['wartet-auf-review', 'untriaged'];
+const LABEL = {
+  'wartet-auf-merge': 'freigegeben, wartet auf Merge',
+  'feedback-unbeantwortet': 'Review-Feedback unbeantwortet',
+  'blockiert': 'blockiert, unbearbeitet',
+  'wartet-auf-review': 'wartet auf Review',
+  'untriaged': 'untriaged (kein Assignee)',
+  'stale': 'inaktiv / angelaufen'
+};
+const ICON = { pr: 'PR', issue: 'Issue' };
+
+function lade() {
+  fetch('heartbeat-status.json')
+    .then(r => { if (!r.ok) throw 0; return r.json(); })
+    .then(zeigen)
+    .catch(() => { document.getElementById('demo').style.display = 'block'; zeigen(DEMO); });
+}
+
+function fmtAlter(h) {
+  if (h < 48) return Math.round(h) + ' h';
+  return Math.round(h / 24) + ' Tage';
+}
+
+function anzeigen() {
+  const rot = [], gelb = [], blau = [];
+  (data.items || []).forEach(it => {
+    if (ROT.includes(it.kind)) rot.push(it);
+    else if (GELB.includes(it.kind)) gelb.push(it);
+    else blau.push(it);
+  });
+  document.getElementById('z-rot').textContent = rot.length;
+  document.getElementById('z-gelb').textContent = gelb.length;
+  document.getElementById('z-blau').textContent = blau.length;
+
+  const html = list => list.length ? list.map(karte).join('') : '<div class="leer">nichts &mdash; alles gut</div>';
+  document.getElementById('liste-rot').innerHTML = html(rot);
+  document.getElementById('liste-gelb').innerHTML = html(gelb);
+  document.getElementById('liste-blau').innerHTML = html(blau);
+  document.getElementById('schlag').textContent = new Date(data.generatedAt).toLocaleString('de-DE');
+  document.getElementById('pruefung').textContent = data.checked + ' PRs/Issues geprueft';
+}
+
+function karte(it) {
+  const url = 'https://github.com/' + it.repo + '/' + (it.type === 'pr' ? 'pull' : 'issues') + '/' + it.number;
+  return '<div class="karte ' + it.kind + '">' +
+    '<div class="kopf"><span class="titel">' + it.title + '</span><span class="alter">' + fmtAlter(it.ageHours) + '</span></div>' +
+    '<div class="meta">' + ICON[it.type] + ' <a href="' + url + '" target="_blank">' + it.repo + ' #' + it.number + '</a> &middot; ' + LABEL[it.kind] + '</div>' +
+    '</div>';
+}
+
+let data = null;
+function zeigen(d) { data = d; anzeigen(); }
+lade();
+</script>
+</body>
+</html>
