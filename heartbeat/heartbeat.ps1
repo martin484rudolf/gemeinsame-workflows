@@ -88,6 +88,7 @@ $nowUtc = [DateTime]::UtcNow
 $repos = Get-RepoList
 $pings = 0
 $checked = 0
+$statusItems = @()
 
 foreach ($repo in $repos) {
     # ---- Pull Requests
@@ -100,27 +101,32 @@ foreach ($repo in $repos) {
             # Merge-Stau: freigegeben (Approve) aber unmerged — beim naechsten Schlag melden
             if ($ageH -ge $config.prApprovedHours) {
                 Send-Ping $repo $pr.number 'pr' ("Herzschlag: PR #$($pr.number) ist seit $([math]::Round($ageH,1)) h freigegeben (approved) und wartet auf Merge (Web-UI).")
+                $statusItems += [ordered]@{ type='pr'; kind='wartet-auf-merge'; repo=$repo; number=$pr.number; title=$pr.title; ageHours=[math]::Round($ageH,1) }
                 $pings++
                 continue
             }
             if ($ageH -ge $config.mergeStaleHours) {
                 Send-Ping $repo $pr.number 'pr' ("Herzschlag: PR #$($pr.number) ist freigegeben und wartet seit $([math]::Round($ageH,1)) h auf Merge (Web-UI).")
+                $statusItems += [ordered]@{ type='pr'; kind='wartet-auf-merge'; repo=$repo; number=$pr.number; title=$pr.title; ageHours=[math]::Round($ageH,1) }
                 $pings++
                 continue
             }
         }
         if ($pr.reviewDecision -eq 'REVIEW_REQUIRED' -and $ageH -ge $config.prReviewHours) {
             Send-Ping $repo $pr.number 'pr' ("Herzschlag: PR #$($pr.number) ($($pr.title)) wartet seit $([math]::Round($ageH,1)) h auf Review.")
+            $statusItems += [ordered]@{ type='pr'; kind='wartet-auf-review'; repo=$repo; number=$pr.number; title=$pr.title; ageHours=[math]::Round($ageH,1) }
             $pings++
             continue
         }
         if ($pr.reviewDecision -eq 'CHANGES_REQUESTED' -and $ageH -ge $config.prFeedbackHours) {
             Send-Ping $repo $pr.number 'pr' ("Herzschlag: Review-Feedback an PR #$($pr.number) ist seit $([math]::Round($ageH,1)) h unbeantwortet.")
+            $statusItems += [ordered]@{ type='pr'; kind='feedback-unbeantwortet'; repo=$repo; number=$pr.number; title=$pr.title; ageHours=[math]::Round($ageH,1) }
             $pings++
             continue
         }
         if ($ageH -ge ($config.staleDays * 24) -and -not ($pr.labels | Where-Object { $_.name -eq $config.staleLabel })) {
             Send-Ping $repo $pr.number 'pr' ("Herzschlag: PR #$($pr.number) ist seit $([math]::Round($ageH / 24,1)) Tagen inaktiv.")
+            $statusItems += [ordered]@{ type='pr'; kind='stale'; repo=$repo; number=$pr.number; title=$pr.title; ageHours=[math]::Round($ageH,1) }
             $pings++
         }
     }
@@ -135,19 +141,34 @@ foreach ($repo in $repos) {
 
         if ($isBlocked -and $ageH -ge $config.blockedHours -and -not $isStale) {
             Send-Ping $repo $issue.number 'issue' ("Herzschlag: Issue #$($issue.number) ($($issue.title)) ist blockiert und seit $([math]::Round($ageH,1)) h unbearbeitet.")
+            $statusItems += [ordered]@{ type='issue'; kind='blockiert'; repo=$repo; number=$issue.number; title=$issue.title; ageHours=[math]::Round($ageH,1) }
             $pings++
             continue
         }
         if (-not $issue.assignees -and $ageH -ge $config.issueTriagerHours -and -not $isStale) {
             Send-Ping $repo $issue.number 'issue' ("Herzschlag: Issue #$($issue.number) ist seit $([math]::Round($ageH,1)) h untriaged (kein Assignee).")
+            $statusItems += [ordered]@{ type='issue'; kind='untriaged'; repo=$repo; number=$issue.number; title=$issue.title; ageHours=[math]::Round($ageH,1) }
             $pings++
             continue
         }
         if ($ageH -ge ($config.staleDays * 24) -and -not $isStale) {
             Send-Ping $repo $issue.number 'issue' ("Herzschlag: Issue #$($issue.number) ist seit $([math]::Round($ageH / 24,1)) Tagen inaktiv.")
+            $statusItems += [ordered]@{ type='issue'; kind='stale'; repo=$repo; number=$issue.number; title=$issue.title; ageHours=[math]::Round($ageH,1) }
             $pings++
         }
     }
 }
 
 Write-Log "=== Herzschlag fertig: $checked PRs/Issues geprueft, $pings Regel-Treffer ==="
+
+# ------------------------------------------------------- Status-JSON fuer die Tafel (cockpit-tafel.html)
+
+$status = [ordered]@{
+    generatedAt = (Get-Date).ToUniversalTime().ToString('o')
+    checked     = $checked
+    pings       = $pings
+    items       = $statusItems
+}
+$statusJson = $status | ConvertTo-Json -Depth 5
+Set-Content -Path (Join-Path $HOME '.vibe\heartbeat-status.json') -Value $statusJson -Encoding ascii
+Write-Log "Status-JSON aktualisiert: $HOME\.vibe\heartbeat-status.json"

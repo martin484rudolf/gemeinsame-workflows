@@ -69,6 +69,15 @@ Erste Tage nur loggen, nichts posten — in `heartbeat-config.json` `"dryRun": t
 pwsh -NoProfile -File $HOME\.vibe\heartbeat.ps1 -now
 ```
 
+## Grafische Tafel (cockpit-tafel.html)
+
+Die Tafel zeigt den Zustand des letzten Herzschlags als Cockpit-Ansicht: Ampel-Karten (rot = jemand wartet, gelb = zum Bearbeiten, blau = stale), Zaehler oben und direkte Links zu jedem PR/Issue.
+
+- `heartbeat.ps1` schreibt bei jedem Schlag den Zustand nach `%USERPROFILE%\.vibe\heartbeat-status.json`
+- `cockpit-tafel.html` liest diese Datei und zeigt sie grafisch (einfach im Browser oeffnen)
+- Ohne Status-Datei zeigt die Tafel Demo-Daten mit Hinweis — so kann man sie sofort testen
+-Integration ins Cockpit: Die HTML-Datei kann als Kachel verlinkt werden (Claude baut das nach Cockpit-Konvention, siehe Uebergabe cockpit-vibe-knopf)
+
 ## Sicherheit & Rahmen
 
 - Das Skript liest GitHub-Zustände und schreibt ausschließlich Kommentare auf Issues/PRs im eigenen Konto. Es ändert keinen Code und **merged niemals selbst** — Merge bleibt Martin vorbehalten (Web-UI), der Herzschlag macht Stau nur sichtbar.
