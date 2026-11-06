@@ -1,87 +1,64 @@
 # Herzschlag (Heartbeat)
 
-Ein PowerShell-Skript für Windows, das regelmäßig prüft, ob in den GitHub-Repos etwas offen und liegen geblieben ist — wie ein Herzschlag im Kreis, damit nichts vergessen wird. Es läuft auf einem eigenen PC (z. B. Keller-PC) per Task Scheduler im Takt von 2 Stunden (oder kürzer), unabhängig von GitHub-Actions-Kontingenten und ohne Cron-Drift.
+Ein Bash-Skript fuer den Keller-Rechner (Debian, Benutzer `vibe`, F4r/F3e), das
+regelmaessig prueft, ob in den Koppel-Repos etwas offen und liegen geblieben
+ist – wie ein Herzschlag im Kreis, damit nichts vergessen wird. Es laeuft per
+systemd-Timer (Standard: 1 h), unabhaengig von GitHub-Actions-Kontingenten.
 
-Der Herzschlag schlägt im Takt, aber er **pingt nur bei Bedarf**: Still = alles gut. Jeder Ping nennt genau eine konkrete nächste Handlung.
+Der Herzschlag schlaegt im Takt, aber er **pingt nur bei Bedarf**:
+Still = alles gut. Jeder Ping nennt genau eine konkrete naechste Handlung,
+mit Drossel (maximal `maxPings` pro Punkt, danach Stille-Modus).
 
 ## Funktionsweise
 
 ```
-Task Scheduler (Standard: alle 2 Stunden)
-  └─ heartbeat.ps1
-       ├─ gh pr list   (alle Repos, Zustand: offen)
-       ├─ gh issue list (alle Repos, Zustand: offen)
-       ├─ Regeln prüfen (siehe unten)
-       │    ├─ Regel erfüllt → GitHub-Kommentar als Ping
-       │    └─ nichts offen → STILLE, nur Logeintrag "Beat ok"
-       └─ Log nach %USERPROFILE%\.vibe\heartbeat.log
+systemd-Timer (OnCalendar=hourly, Persistent=true)
+  └─ heartbeat.sh (User: vibe)
+       ├─ Quittungs-Check im Handshake-Klon (Script aus Handshake PR #44)
+       │    └─ offene Uebergaben ohne Quittung -> Log
+       ├─ gh pr list   (je Repo, Zustand: offen)
+       ├─ gh issue list (je Repo, Labels agent:vibe / agent:both)
+       └─ Regeln pruefen -> Log; bei Bedarf GitHub-Kommentar als Ping
 ```
 
-## Regeln (dynamisch, konfigurierbar)
+- **Konfiguration:** `~/.config/vibe/heartbeat-config.json`
+  (Vorlage: `heartbeat-config.beispiel.json`)
+- **Log:** `~/.local/state/vibe/heartbeat.log`
+- **Zustand (Drossel):** `~/.local/state/vibe/heartbeat-state.json`
+- **Voraussetzung:** `gh` CLI eingerichtet und angemeldet (Issue #38) und ein
+  Klon des Handshake-Repos unter `~/Handshake` (oder `~/handshake`).
 
-| Situation | Ping nach | Kommentar-Text (Platzhalter) |
+## Regeln (konfigurierbar)
+
+| Situation | Ping nach | Standard |
 |---|---|---|
-| **Merge-Stau:** PR freigegeben (Approve-Review), aber unmerged | `mergeStaleHours` (Standard 2 h) | `Herzschlag: PR #<nr> ist freigegeben und wartet seit <x> h auf Merge (Web-UI).` |
-| PR freigegeben (approved), unmerged, älter als Fallback-Schwelle | `prApprovedHours` (Standard 24 h) | `Herzschlag: PR #<nr> ist seit <x> h freigegeben (approved) und wartet auf Merge (Web-UI).` |
-| Offener PR, wartet auf Review, kein Feedback | `prReviewHours` (Standard 24 h) | `Herzschlag: PR #<nr> wartet seit <x> h auf Review.` |
-| Offener PR mit unbeantwortetem Review-Kommentar | `prFeedbackHours` (Standard 12 h) | `Herzschlag: Review-Feedback an PR #<nr> ist seit <x> h unbeantwortet.` |
-| Offene Issue ohne Assignee/Label | `issueTriagerHours` (Standard 12 h) | `Herzschlag: Issue #<nr> ist seit <x> h untriaged (kein Assignee).` |
-| Issue mit Label `blocked`, kein Update | `blockedHours` (Standard 48 h) | `Herzschlag: Issue #<nr> ist blockiert und seit <x> h unbearbeitet.` |
-| PR/Issue länger als `staleDays` inaktiv | 1× wöchentlich, Label `stale` | Drossel statt Dauer-Ping (Alarm-Fatigue vermeiden) |
-| Nichts offen | — | Kein Ping, nur stiller Logeintrag |
+| Offener PR ohne Abschluss (Review/Merge haengt) | `prReviewHours` | 24 h |
+| Offenes Issue mit Label `agent:vibe` oder `agent:both` | `issueHours` | 12 h |
+| Offene Uebergabe ohne Quittung (Quittungs-Check) | nur Log (Info) | – |
+| Drossel | `maxPings`, danach still | 3 |
 
-Eskalation: Nach `maxPings` (Standard 3) Herzschlägen ohne Reaktion wird nur noch das `stale`-Label gesetzt und nicht weiter gepingt. Die Sache geht zurück ins Backlog statt endlos zu piepen.
+`dryRun: true` (Standard) loggt nur und postet nichts – erst nach dem Test
+auf `false` setzen.
 
-## Installation auf dem Keller-PC
+## Installation auf dem Keller (Claude Code lokal mit Martin, Freigabe je Schritt)
 
-Voraussetzungen: Windows 10/11, `gh` CLI installiert, einmalig `gh auth login`.
+1. Repo nach `~/gemeinsame-workflows` klonen (Benutzer `vibe`).
+2. `mkdir -p ~/.config/vibe && cp heartbeat/heartbeat-config.beispiel.json ~/.config/vibe/heartbeat-config.json`
+3. Testlauf: `bash ~/gemeinsame-workflows/heartbeat/heartbeat.sh && tail -20 ~/.local/state/vibe/heartbeat.log`
+   (Standard `dryRun: true` – es wird nur geloggt.)
+4. Timer einrichten (als martin, mit sudo):
+   `sudo install -m 644 heartbeat/systemd/vibe-heartbeat.{service,timer} /etc/systemd/system/`
+   `sudo systemctl daemon-reload && sudo systemctl enable --now vibe-heartbeat.timer`
+5. Pruefen: `systemctl list-timers | grep heartbeat`; nach einer Stunde
+   `tail -20 ~/.local/state/vibe/heartbeat.log`.
+6. Erst nach ein paar guten Testlaeufen `dryRun` auf `false` setzen
+   (dann pingt der Herzschlag wirklich als GitHub-Kommentar).
 
-### 1. Skript ablegen
+## Grenzen (offen gesagt)
 
-```powershell
-mkdir $HOME\.vibe -Force
-# heartbeat.ps1 nach %USERPROFILE%\.vibe\heartbeat.ps1 kopieren
-```
-
-### 2. Konfiguration
-
-Optional: `%USERPROFILE%\.vibe\heartbeat-config.json` anlegen, um Repos und Schwellwerte anzupassen (siehe Tabelle oben). Ohne Datei gelten die Standardwerte und alle Repos des Kontos.
-
-### 3. Task Scheduler-Aufgabe anlegen
-
-PowerShell als Administrator:
-
-```powershell
-$action  = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -File $env:USERPROFILE\.vibe\heartbeat.ps1"
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 2)
-Register-ScheduledTask -TaskName "Herzschlag" -Action $action -Trigger $trigger -Description "Praeft offene PRs/Issues in allen GitHub-Repos und pingt bei Bedarf"
-```
-
-Für einen engeren Takt: `-RepetitionInterval (New-TimeSpan -Minutes 30)` bzw. `-Hours 1`. Für nächtliche Ruhe kann eine zweite Trigger-Zeit den Takt außerhalb der Arbeitszeiten auf 4 h drosseln.
-
-### 4. Testbetrieb (empfohlen)
-
-Erste Tage nur loggen, nichts posten — in `heartbeat-config.json` `"dryRun": true` setzen. Das Skript schreibt dann, was es pingen würde, nur ins Log. Danach `"dryRun": false` und der Herzschlag wird scharf geschaltet.
-
-### 5. Manueller Sofort-Check
-
-```powershell
-pwsh -NoProfile -File $HOME\.vibe\heartbeat.ps1 -now
-```
-
-## Grafische Tafel (cockpit-tafel.html)
-
-Die Tafel zeigt den Zustand des letzten Herzschlags als Cockpit-Ansicht: Ampel-Karten (rot = jemand wartet, gelb = zum Bearbeiten, blau = stale), Zaehler oben und direkte Links zu jedem PR/Issue.
-
-- `heartbeat.ps1` schreibt bei jedem Schlag den Zustand nach `%USERPROFILE%\.vibe\heartbeat-status.json`
-- `cockpit-tafel.html` liest diese Datei und zeigt sie grafisch (einfach im Browser oeffnen)
-- Ohne Status-Datei zeigt die Tafel Demo-Daten mit Hinweis — so kann man sie sofort testen
--Integration ins Cockpit: Die HTML-Datei kann als Kachel verlinkt werden (Claude baut das nach Cockpit-Konvention, siehe Uebergabe cockpit-vibe-knopf)
-
-## Sicherheit & Rahmen
-
-- Das Skript liest GitHub-Zustände und schreibt ausschließlich Kommentare auf Issues/PRs im eigenen Konto. Es ändert keinen Code und **merged niemals selbst** — Merge bleibt Martin vorbehalten (Web-UI), der Herzschlag macht Stau nur sichtbar.
-- Freigabe-Erkennung: maschinenlesbar über Approve-Reviews (`reviewDecision: APPROVED`). Text-Freigaben in SYNC.md sind menschlicher Zusatz, aber kein Trigger.
-- Es speichert keine Token (nutzt die bestehende `gh`-Authentifizierung).
-- Keine personenbezogenen Daten: Es verarbeitet nur Repo-Namen, PR-/Issue-Nummern und Zeitstempel.
-- Pings sind öffentlich sichtbare Kommentare (bei privaten Repos nur für Repo-Mitglieder).
+- Der Herzschlag sieht nur GitHub (PRs, Issues, Quittungen). Was nur lokal
+  liegt (z. B. ungepushte Branches), sieht er nicht.
+- Er weckt noch keine Sitzung: Bis der Bote (M4) steht, stoesst weiterhin
+  Martin an; der Ping zeigt nur, *was* ansteht.
+- Kein Token im Skript; es nutzt die bestehende gh-Anmeldung des Benutzers
+  `vibe`. Verarbeitet werden nur Repo-Namen, Nummern, Titel und Zeitstempel.

@@ -1,14 +1,8 @@
 {
-    "repos": [],
-    "prReviewHours": 24,
-    "prFeedbackHours": 12,
-    "mergeStaleHours": 2,
-    "prApprovedHours": 24,
-    "issueTriagerHours": 12,
-    "blockedHours": 48,
-    "staleDays": 7,
-    "maxPings": 3,
-    "dryRun": true,
-    "logPath": "",
-    "staleLabel": "stale"
+  "repos": ["martin484rudolf/Handshake", "martin484rudolf/lokale-modelle", "martin484rudolf/gemeinsame-workflows"],
+  "prReviewHours": 24,
+  "issueHours": 12,
+  "maxPings": 3,
+  "dryRun": true,
+  "labels": ["agent:vibe", "agent:both"]
 }
