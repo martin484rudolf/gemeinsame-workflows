@@ -1,0 +1,9 @@
+[Unit]
+Description=Herzschlag: PRs/Issues-Check mit Regeln (Vibe, Keller)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=vibe
+ExecStart=/home/vibe/gemeinsame-workflows/heartbeat/heartbeat.sh

@@ -1,0 +1,8 @@
+{
+  "repos": ["martin484rudolf/Handshake", "martin484rudolf/lokale-modelle", "martin484rudolf/gemeinsame-workflows"],
+  "prReviewHours": 24,
+  "issueHours": 12,
+  "maxPings": 3,
+  "dryRun": true,
+  "labels": ["agent:vibe", "agent:both"]
+}

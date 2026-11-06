@@ -1,0 +1,9 @@
+[Unit]
+Description=Herzschlag-Takt (Standard: 1h)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
