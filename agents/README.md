@@ -16,7 +16,7 @@ agents/
 ```
 
 Neue Profile entstehen wie Skills über Issue + PR (siehe
-`gemeinsame-workflows/skills/README.md`); Änderungen genauso.
+`skills/README.md`); Änderungen genauso.
 
 ## Instanziierung
 

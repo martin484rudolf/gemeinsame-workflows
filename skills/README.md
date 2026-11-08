@@ -18,9 +18,11 @@ Neue Skills entstehen aus `VORLAGE.md` (Kopie als `skills/<name>/SKILL.md`).
 
 ## Prozess: Anlage
 
-1. **Issue** im Repo `martin484rudolf/Mistral-1` mit der Issue-Vorlage
-   „Agent-Auftrag" (Labels `agent:*`, `mode:*` Pflicht). Das Issue beschreibt
-   Ziel und Abgrenzung des Skills.
+1. **Issue** im Ziel-Repo (hier: `gemeinsame-workflows`) anlegen. Das Issue
+   beschreibt Ziel und Abgrenzung des Skills. Die Pflicht-Labels `agent:*` und
+   `mode:*` folgen der Konvention aus `Mistral-1/AGENTS.md`; fehlen sie als
+   Repo-Labels, werden die Rollen in der PR-Beschreibung notiert (wie bei PR #4).
+   `Mistral-1` ist archiviert und nimmt keine neuen Issues mehr auf.
 2. **Anlegen**: Der zuständige Agent kopiert `VORLAGE.md` nach
    `skills/<name>/SKILL.md`, füllt sie aus und committet auf einem Branch
    gemäß Branch-Konvention (`claude/<slug>` oder `vibe/<slug>`).
